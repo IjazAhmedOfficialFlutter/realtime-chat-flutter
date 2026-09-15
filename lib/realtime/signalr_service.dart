@@ -5,7 +5,12 @@ class SignalRService {
   HubConnection? _connection;
 
   Future<void> connect(String token) async {
-    const url = 'http://192.168.110.180:5082/hubs/chat';
+    if (_connection != null) {
+      return;
+    }
+
+    const url =
+        'http://192.168.110.180:5082/hubs/chat';
 
     debugPrint('SignalR connecting: $url');
 
@@ -19,7 +24,9 @@ class SignalRService {
         .build();
 
     _connection!.onclose(({error}) {
-      debugPrint('SignalR disconnected: $error');
+      debugPrint(
+        'SignalR disconnected: $error',
+      );
     });
 
     await _connection!.start();
@@ -28,8 +35,11 @@ class SignalRService {
   }
 
   Future<void> disconnect() async {
-    await _connection?.stop();
+    final connection = _connection;
+
     _connection = null;
+
+    await connection?.stop();
   }
 
   Future<void> sendMessage(
@@ -40,7 +50,11 @@ class SignalRService {
       'Sending message to $receiverId: $message',
     );
 
-    await _connection?.invoke(
+    if (_connection == null) {
+      throw Exception('SignalR is not connected.');
+    }
+
+    await _connection!.invoke(
       'SendMessage',
       args: [
         receiverId,
@@ -52,6 +66,8 @@ class SignalRService {
   void onMessage(
       void Function(List<Object?>?) callback,
       ) {
+    _connection?.off('ReceiveMessage');
+
     _connection?.on(
       'ReceiveMessage',
       callback,
