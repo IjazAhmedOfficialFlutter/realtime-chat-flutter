@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../realtime/signalr_service.dart';
 import 'core/auth_services.dart';
+import 'model/chat_model.dart';
 
 class ChatPage extends StatefulWidget {
   const ChatPage({super.key});
@@ -15,12 +16,16 @@ class _ChatPageState extends State<ChatPage> {
   final SignalRService _signalR = SignalRService();
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
+
+  final List<ChatMessage> _messages = [];
+
   String _status = 'Connecting...';
   String _userName = '';
+  String _receiverName = '';
+
   int _userId = 0;
   int _receiverId = 0;
-  String _receiverName = '';
-  final List<ChatMessage> _messages = [];
+
   bool _sending = false;
 
   @override
@@ -33,35 +38,104 @@ class _ChatPageState extends State<ChatPage> {
     try {
       final token = await _authService.getToken();
       final user = await _authService.getUser();
+
       if (token == null || user == null) {
         if (!mounted) {
           return;
         }
+
         Navigator.pushReplacementNamed(context, '/login');
         return;
       }
+
       _userId = (user['id'] as num).toInt();
       _userName = user['name']?.toString() ?? '';
+
       _setReceiver();
+
       debugPrint('LOGIN USER: $_userId - $_userName');
+
       debugPrint('CHAT RECEIVER: $_receiverId - $_receiverName');
-      await _signalR.connect(token);
-      _signalR.onMessage(_handleIncomingMessage);
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _status = 'Connected';
-      });
+
+      await _signalR.connect(
+        token,
+        onStatus: (status) {
+          if (!mounted) {
+            return;
+          }
+
+          setState(() {
+            _status = status;
+          });
+        },
+        onMessage: _handleIncomingMessage,
+      );
+
+      await _loadMessages();
     } catch (e) {
       debugPrint('SignalR error: $e');
+
       if (!mounted) {
         return;
       }
+
       setState(() {
         _status = 'Connection failed';
       });
     }
+  }
+
+  Future<void> _loadMessages() async {
+    try {
+      final data = await _authService.getMessages(_receiverId);
+
+      if (!mounted) {
+        return;
+      }
+
+      final messages = data.map(_mapMessage).whereType<ChatMessage>().toList();
+
+      setState(() {
+        for (final message in messages) {
+          if (!_messages.any((item) => item.id == message.id)) {
+            _messages.add(message);
+          }
+        }
+
+        _messages.sort((a, b) => a.time.compareTo(b.time));
+      });
+
+      _scrollToBottom();
+    } catch (e) {
+      debugPrint('Load messages error: $e');
+    }
+  }
+
+  ChatMessage? _mapMessage(Map<String, dynamic> data) {
+    final id = (data['id'] as num?)?.toInt();
+    final senderId = (data['senderId'] as num?)?.toInt();
+    final receiverId = (data['receiverId'] as num?)?.toInt();
+    final content = data['content']?.toString();
+    final createdAt = data['createdAt']?.toString();
+
+    if (id == null ||
+        senderId == null ||
+        receiverId == null ||
+        content == null ||
+        createdAt == null ||
+        content.trim().isEmpty) {
+      return null;
+    }
+
+    return ChatMessage(
+      id: id,
+      senderId: senderId,
+      receiverId: receiverId,
+      message: content,
+      time: DateTime.tryParse(createdAt)?.toLocal() ?? DateTime.now(),
+      isDelivered: data['isDelivered'] == true,
+      isRead: data['isRead'] == true,
+    );
   }
 
   void _setReceiver() {
@@ -70,86 +144,102 @@ class _ChatPageState extends State<ChatPage> {
       _receiverName = 'Test User';
       return;
     }
+
     if (_userId == 2) {
       _receiverId = 1;
       _receiverName = 'Ijaz';
       return;
     }
+
     throw Exception('No receiver configured for user $_userId');
   }
 
   void _handleIncomingMessage(List<Object?>? arguments) {
     debugPrint('RECEIVED: $arguments');
+
     if (!mounted || arguments == null || arguments.isEmpty) {
       return;
     }
-    final data = arguments.first;
-    if (data is! Map) {
+
+    final rawData = arguments.first;
+
+    if (rawData is! Map) {
       return;
     }
-    final senderId = (data['senderId'] as num?)?.toInt();
-    final receiverId = (data['receiverId'] as num?)?.toInt();
-    final message = data['message']?.toString();
-    if (senderId == null ||
-        receiverId == null ||
-        message == null ||
-        message.trim().isEmpty) {
+
+    final data = Map<String, dynamic>.from(rawData);
+
+    final message = _mapMessage(data);
+
+    if (message == null) {
       return;
     }
-    if (senderId == _userId) {
+
+    if (message.receiverId != _userId) {
       return;
     }
-    if (receiverId != _userId) {
+
+    if (_messages.any((item) => item.id == message.id)) {
       return;
     }
+
     setState(() {
-      _messages.add(
-        ChatMessage(
-          senderId: senderId,
-          receiverId: receiverId,
-          message: message,
-          time: DateTime.now(),
-        ),
-      );
+      _messages.add(message);
+
+      _messages.sort((a, b) => a.time.compareTo(b.time));
     });
+
     _scrollToBottom();
   }
 
   Future<void> _sendMessage() async {
-    final message = _messageController.text.trim();
-    if (message.isEmpty ||
+    final text = _messageController.text.trim();
+
+    if (text.isEmpty ||
         _status != 'Connected' ||
         _sending ||
         _receiverId == 0) {
       return;
     }
+
     setState(() {
       _sending = true;
     });
+
     try {
-      await _signalR.sendMessage(_receiverId, message);
+      final result = await _signalR.sendMessage(_receiverId, text);
+
       if (!mounted) {
         return;
       }
-      setState(() {
-        _messages.add(
-          ChatMessage(
-            senderId: _userId,
-            receiverId: _receiverId,
-            message: message,
-            time: DateTime.now(),
-          ),
-        );
-      });
+
+      if (result is Map) {
+        final data = Map<String, dynamic>.from(result);
+
+        final message = _mapMessage(data);
+
+        if (message != null &&
+            !_messages.any((item) => item.id == message.id)) {
+          setState(() {
+            _messages.add(message);
+
+            _messages.sort((a, b) => a.time.compareTo(b.time));
+          });
+        }
+      }
+
       _messageController.clear();
       _scrollToBottom();
     } catch (e) {
       debugPrint('Send message error: $e');
+
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Message could not be sent')));
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Message could not be sent')),
+      );
     } finally {
       if (mounted) {
         setState(() {
@@ -164,6 +254,7 @@ class _ChatPageState extends State<ChatPage> {
       if (!_scrollController.hasClients) {
         return;
       }
+
       _scrollController.animateTo(
         _scrollController.position.maxScrollExtent,
         duration: const Duration(milliseconds: 250),
@@ -175,9 +266,11 @@ class _ChatPageState extends State<ChatPage> {
   Future<void> _logout() async {
     await _signalR.disconnect();
     await _authService.logout();
+
     if (!mounted) {
       return;
     }
+
     Navigator.pushReplacementNamed(context, '/login');
   }
 
@@ -187,8 +280,11 @@ class _ChatPageState extends State<ChatPage> {
         : time.hour > 12
         ? time.hour - 12
         : time.hour;
+
     final minute = time.minute.toString().padLeft(2, '0');
+
     final period = time.hour >= 12 ? 'PM' : 'AM';
+
     return '$hour:$minute $period';
   }
 
@@ -216,10 +312,13 @@ class _ChatPageState extends State<ChatPage> {
                     itemCount: _messages.length,
                     itemBuilder: (context, index) {
                       final message = _messages[index];
+
                       return _MessageBubble(
                         message: message.message,
                         time: _formatTime(message.time),
                         isMine: message.senderId == _userId,
+                        isDelivered: message.isDelivered,
+                        isRead: message.isRead,
                       );
                     },
                   ),
@@ -231,6 +330,8 @@ class _ChatPageState extends State<ChatPage> {
   }
 
   PreferredSizeWidget _buildAppBar() {
+    final isConnected = _status == 'Connected';
+
     return AppBar(
       elevation: 1,
       backgroundColor: Colors.white,
@@ -267,7 +368,7 @@ class _ChatPageState extends State<ChatPage> {
                     width: 7,
                     height: 7,
                     decoration: BoxDecoration(
-                      color: _status == 'Connected'
+                      color: isConnected
                           ? const Color(0xFF25D366)
                           : Colors.orange,
                       shape: BoxShape.circle,
@@ -322,6 +423,8 @@ class _ChatPageState extends State<ChatPage> {
   }
 
   Widget _buildMessageInput() {
+    final canSend = _status == 'Connected' && !_sending;
+
     return Container(
       padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
       decoration: const BoxDecoration(
@@ -364,15 +467,11 @@ class _ChatPageState extends State<ChatPage> {
             ),
             const SizedBox(width: 8),
             Material(
-              color: _status == 'Connected' && !_sending
-                  ? const Color(0xFF25D366)
-                  : Colors.grey,
+              color: canSend ? const Color(0xFF25D366) : Colors.grey,
               shape: const CircleBorder(),
               child: InkWell(
                 customBorder: const CircleBorder(),
-                onTap: _status == 'Connected' && !_sending
-                    ? _sendMessage
-                    : null,
+                onTap: canSend ? _sendMessage : null,
                 child: Padding(
                   padding: const EdgeInsets.all(13),
                   child: _sending
@@ -405,11 +504,15 @@ class _MessageBubble extends StatelessWidget {
   final String message;
   final String time;
   final bool isMine;
+  final bool isDelivered;
+  final bool isRead;
 
   const _MessageBubble({
     required this.message,
     required this.time,
     required this.isMine,
+    required this.isDelivered,
+    required this.isRead,
   });
 
   @override
@@ -463,25 +566,19 @@ class _MessageBubble extends StatelessWidget {
             ),
             if (isMine) ...[
               const SizedBox(width: 3),
-              const Icon(Icons.done_all, size: 15, color: Color(0xFF53BDEB)),
+              Icon(
+                Icons.done_all,
+                size: 15,
+                color: isRead
+                    ? const Color(0xFF53BDEB)
+                    : isDelivered
+                    ? Colors.grey
+                    : Colors.grey.shade400,
+              ),
             ],
           ],
         ),
       ),
     );
   }
-}
-
-class ChatMessage {
-  final int senderId;
-  final int receiverId;
-  final String message;
-  final DateTime time;
-
-  const ChatMessage({
-    required this.senderId,
-    required this.receiverId,
-    required this.message,
-    required this.time,
-  });
 }

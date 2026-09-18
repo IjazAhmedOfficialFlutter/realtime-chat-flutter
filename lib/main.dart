@@ -1,9 +1,24 @@
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
+
 import 'chat_page.dart';
 import 'core/auth_services.dart';
 import 'login_page.dart';
+import 'notifications/fcm_service.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  await Firebase.initializeApp(
+    options: const FirebaseOptions(
+      apiKey: 'AIzaSyDVT3-apWzEZOJ9PWaO5h8wtxg2kNHkOik',
+      appId: '1:103366416712:android:1428ed5f6cf60ac1f4bb7d',
+      messagingSenderId: '103366416712',
+      projectId: 'realchatapp-55cd7',
+      storageBucket: 'realchatapp-55cd7.firebasestorage.app',
+    ),
+  );
+  await FcmService().initialize();
   runApp(const RealtimeChatApp());
 }
 
@@ -43,9 +58,7 @@ class StartupPage extends StatelessWidget {
       builder: (context, snapshot) {
         if (!snapshot.hasData) {
           return const Scaffold(
-            body: Center(
-              child: CircularProgressIndicator(),
-            ),
+            body: Center(child: CircularProgressIndicator()),
           );
         }
 

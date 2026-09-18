@@ -10,23 +10,22 @@ class LoginPage extends StatefulWidget {
 }
 
 class _LoginPageState extends State<LoginPage> {
-  final _emailController = TextEditingController(
+  final TextEditingController _emailController =
+  TextEditingController(
     text: 'ijaz@test.com',
   );
 
-  final _passwordController = TextEditingController(
+  final TextEditingController _passwordController =
+  TextEditingController(
     text: '123456',
   );
 
-  final _authService = AuthService();
+  final AuthService _authService = AuthService();
 
   bool _loading = false;
 
   Future<void> _login() async {
-    final email = _emailController.text.trim();
-    final password = _passwordController.text;
-
-    if (email.isEmpty || password.isEmpty) {
+    if (_loading) {
       return;
     }
 
@@ -35,20 +34,22 @@ class _LoginPageState extends State<LoginPage> {
     });
 
     try {
-      await _authService.login(
-        email,
-        password,
-      );
+      debugPrint('BUTTON PRESSED');
+
+      await _authService.testSocket();
 
       if (!mounted) {
         return;
       }
 
-      Navigator.pushReplacementNamed(
-        context,
-        '/chat',
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Socket connection successful'),
+        ),
       );
     } catch (e) {
+      debugPrint('SOCKET TEST ERROR: $e');
+
       if (!mounted) {
         return;
       }
@@ -83,12 +84,15 @@ class _LoginPageState extends State<LoginPage> {
       body: Padding(
         padding: const EdgeInsets.all(20),
         child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisAlignment:
+          MainAxisAlignment.center,
           children: [
             TextField(
               controller: _emailController,
-              keyboardType: TextInputType.emailAddress,
-              decoration: const InputDecoration(
+              keyboardType:
+              TextInputType.emailAddress,
+              decoration:
+              const InputDecoration(
                 labelText: 'Email',
               ),
             ),
@@ -96,7 +100,8 @@ class _LoginPageState extends State<LoginPage> {
             TextField(
               controller: _passwordController,
               obscureText: true,
-              decoration: const InputDecoration(
+              decoration:
+              const InputDecoration(
                 labelText: 'Password',
               ),
             ),
@@ -104,10 +109,18 @@ class _LoginPageState extends State<LoginPage> {
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
-                onPressed: _loading ? null : _login,
+                onPressed:
+                _loading ? null : _login,
                 child: _loading
-                    ? const CircularProgressIndicator()
-                    : const Text('Login'),
+                    ? const SizedBox(
+                  width: 22,
+                  height: 22,
+                  child:
+                  CircularProgressIndicator(
+                    strokeWidth: 2,
+                  ),
+                )
+                    : const Text('Test Connection'),
               ),
             ),
           ],
