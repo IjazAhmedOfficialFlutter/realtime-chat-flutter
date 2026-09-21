@@ -234,10 +234,10 @@ packages:
     dependency: "direct main"
     description:
       name: flutter_auto_localize
-      sha256: d15a439bff9aa301762e5551942da65251c8f168497870c15243c472b9feab03
+      sha256: "0c3c52ac20e2f5c518fa453590b728fef7ef90fc3e08433471e4f17df354733e"
       url: "https://pub.dev"
     source: hosted
-    version: "0.1.1"
+    version: "0.1.2"
   flutter_bloc:
     dependency: "direct main"
     description:

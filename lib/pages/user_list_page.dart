@@ -39,18 +39,13 @@ class _UserListPageState extends State<UserListPage> {
   void _openChat(DummyUser user) {
     Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => ChatDetailPage(user: user),
-      ),
+      MaterialPageRoute(builder: (_) => ChatDetailPage(user: user)),
     );
   }
 
   void _startCall(DummyUser user) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Calling ${user.name}...'),
-      ),
-    );
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text('Calling ${user.name}...')));
   }
 
   @override
@@ -64,18 +59,16 @@ class _UserListPageState extends State<UserListPage> {
         foregroundColor: Colors.black87,
         elevation: 1,
         title: Text(
-          l10n.users,
+          l10n.user_list,
           style: const TextStyle(fontWeight: FontWeight.w600),
         ),
         actions: [
           IconButton(
-            tooltip: l10n.callHistory,
+            tooltip: 'History',
             onPressed: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(
-                  builder: (_) => const CallHistoryPage(),
-                ),
+                MaterialPageRoute(builder: (_) => const CallHistoryPage()),
               );
             },
             icon: const Icon(Icons.call),
@@ -87,26 +80,11 @@ class _UserListPageState extends State<UserListPage> {
                 value: widget.locale,
                 icon: const Icon(Icons.language),
                 items: const [
-                  DropdownMenuItem(
-                    value: Locale('en'),
-                    child: Text('EN'),
-                  ),
-                  DropdownMenuItem(
-                    value: Locale('ur'),
-                    child: Text('اردو'),
-                  ),
-                  DropdownMenuItem(
-                    value: Locale('ar'),
-                    child: Text('العربية'),
-                  ),
-                  DropdownMenuItem(
-                    value: Locale('hi'),
-                    child: Text('हिन्दी'),
-                  ),
-                  DropdownMenuItem(
-                    value: Locale('bn'),
-                    child: Text('বাংলা'),
-                  ),
+                  DropdownMenuItem(value: Locale('en'), child: Text('EN')),
+                  DropdownMenuItem(value: Locale('ur'), child: Text('اردو')),
+                  DropdownMenuItem(value: Locale('ar'), child: Text('العربية')),
+                  DropdownMenuItem(value: Locale('hi'), child: Text('हिन्दी')),
+                  DropdownMenuItem(value: Locale('bn'), child: Text('বাংলা')),
                 ],
                 onChanged: (locale) {
                   if (locale != null) {
@@ -129,7 +107,7 @@ class _UserListPageState extends State<UserListPage> {
                 });
               },
               decoration: InputDecoration(
-                hintText: l10n.searchUsers,
+                hintText: l10n.search_users,
                 prefixIcon: const Icon(Icons.search),
                 filled: true,
                 fillColor: Colors.white,
@@ -142,23 +120,21 @@ class _UserListPageState extends State<UserListPage> {
           ),
           Expanded(
             child: _filteredUsers.isEmpty
-                ? Center(
-              child: Text(l10n.noUsersFound),
-            )
+                ? Center(child: Text(l10n.no_user_found))
                 : ListView.separated(
-              padding: const EdgeInsets.all(16),
-              itemCount: _filteredUsers.length,
-              separatorBuilder: (_, _) => const SizedBox(height: 10),
-              itemBuilder: (context, index) {
-                final user = _filteredUsers[index];
+                    padding: const EdgeInsets.all(16),
+                    itemCount: _filteredUsers.length,
+                    separatorBuilder: (_, _) => const SizedBox(height: 10),
+                    itemBuilder: (context, index) {
+                      final user = _filteredUsers[index];
 
-                return _UserCard(
-                  user: user,
-                  onChat: () => _openChat(user),
-                  onCall: () => _startCall(user),
-                );
-              },
-            ),
+                      return _UserCard(
+                        user: user,
+                        onChat: () => _openChat(user),
+                        onCall: () => _startCall(user),
+                      );
+                    },
+                  ),
           ),
         ],
       ),
@@ -213,10 +189,7 @@ class _UserCard extends StatelessWidget {
                         decoration: BoxDecoration(
                           color: const Color(0xFF22C55E),
                           shape: BoxShape.circle,
-                          border: Border.all(
-                            color: Colors.white,
-                            width: 2,
-                          ),
+                          border: Border.all(color: Colors.white, width: 2),
                         ),
                       ),
                     ),

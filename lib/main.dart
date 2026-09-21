@@ -1,3 +1,4 @@
+
 import 'package:flutter/material.dart';
 import 'package:realtime_chat_flutter/pages/user_list_page.dart';
 
@@ -31,11 +32,10 @@ class _MyAppState extends State<MyApp> {
       locale: _locale,
       supportedLocales: AppLocalizations.supportedLocales,
       localizationsDelegates: AppLocalizations.localizationsDelegates,
-      home: UserListPage(
+      home: LoginPage(
         locale: _locale,
         onLocaleChanged: _changeLocale,
       ),
-      // home: LoginPage(locale: _locale, onLocaleChanged: _changeLocale),
     );
   }
 }

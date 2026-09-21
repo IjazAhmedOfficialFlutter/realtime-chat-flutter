@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:realtime_chat_flutter/pages/user_list_page.dart';
 
 import 'core/auth_services.dart';
 import 'generated/l10n/app_localizations.dart';
@@ -27,38 +28,61 @@ class _LoginPageState extends State<LoginPage> {
   final AuthService _authService = AuthService();
   bool _loading = false;
 
+  // Future<void> _login() async {
+  //
+  //   Navigator.pushReplacement(context, UserListPage(   locale: _locale,
+  //     onLocaleChanged: _changeLocale,)
+  //   // if (_loading) {
+
+  //   //   return;
+  //   // }
+  //   //
+  //   // final localizations = AppLocalizations.of(context)!;
+  //   //
+  //   // setState(() {
+  //   //   _loading = true;
+  //   // });
+  //   //
+  //   // try {
+  //   //   debugPrint('BUTTON PRESSED');
+  //   //   await _authService.testSocket();
+  //   //
+  //   //   if (!mounted) {
+  //   //     return;
+  //   //   }
+  //   //
+  //   //   ScaffoldMessenger.of(context)
+  //   //       .showSnackBar(SnackBar(content: Text(localizations.good_morning)));
+  //   // } catch (e) {
+  //   //   debugPrint('SOCKET TEST ERROR: $e');
+  //   //
+  //   //   if (!mounted) {
+  //   //     return;
+  //   //   }
+  //   //
+  //   //   ScaffoldMessenger.of(context)
+  //   //       .showSnackBar(SnackBar(content: Text(e.toString())));
+  //   // } finally {
+  //   //   if (mounted) {
+  //   //     setState(() {
+  //   //       _loading = false;
+  //   //     });
+  //   //   }
+  //   // }
+  // }
+
   Future<void> _login() async {
-    if (_loading) {
-      return;
-    }
-    final localizations = AppLocalizations.of(context)!;
-    setState(() {
-      _loading = true;
-    });
-    try {
-      debugPrint('BUTTON PRESSED');
-      await _authService.testSocket();
-      if (!mounted) {
-        return;
-      }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(localizations.socket_connection_successful)),
-      );
-    } catch (e) {
-      debugPrint('SOCKET TEST ERROR: $e');
-      if (!mounted) {
-        return;
-      }
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(e.toString())));
-    } finally {
-      if (mounted) {
-        setState(() {
-          _loading = false;
-        });
-      }
-    }
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (_) => UserListPage(
+          locale: widget.locale,
+          onLocaleChanged: widget.onLocaleChanged,
+        ),
+      ),
+    );
   }
+
 
   @override
   void dispose() {
@@ -70,6 +94,7 @@ class _LoginPageState extends State<LoginPage> {
   @override
   Widget build(BuildContext context) {
     final localizations = AppLocalizations.of(context)!;
+
     return Scaffold(
       appBar: AppBar(
         title: Text(localizations.login),
@@ -82,8 +107,8 @@ class _LoginPageState extends State<LoginPage> {
                 icon: const Icon(Icons.language),
                 items: const [
                   DropdownMenuItem(value: Locale('en'), child: Text('EN')),
-                  DropdownMenuItem(value: Locale('ur'), child: Text('العربية')),
-                  DropdownMenuItem(value: Locale('ar'), child: Text('اردو')),
+                  DropdownMenuItem(value: Locale('ur'), child: Text('اردو')),
+                  DropdownMenuItem(value: Locale('ar'), child: Text('العربية')),
                   DropdownMenuItem(value: Locale('hi'), child: Text('हिन्दी')),
                   DropdownMenuItem(value: Locale('bn'), child: Text('বাংলা')),
                 ],
@@ -105,7 +130,7 @@ class _LoginPageState extends State<LoginPage> {
             TextField(
               controller: _emailController,
               keyboardType: TextInputType.emailAddress,
-              decoration: InputDecoration(labelText: localizations.test_connection),
+              decoration: InputDecoration(labelText: localizations.email),
             ),
             const SizedBox(height: 16),
             TextField(
