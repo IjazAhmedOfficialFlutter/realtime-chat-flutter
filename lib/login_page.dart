@@ -1,64 +1,56 @@
 import 'package:flutter/material.dart';
 
 import 'core/auth_services.dart';
+import 'generated/l10n/app_localizations.dart';
 
 class LoginPage extends StatefulWidget {
-  const LoginPage({super.key});
+  const LoginPage({
+    super.key,
+    required this.locale,
+    required this.onLocaleChanged,
+  });
+
+  final Locale locale;
+  final ValueChanged<Locale> onLocaleChanged;
 
   @override
   State<LoginPage> createState() => _LoginPageState();
 }
 
 class _LoginPageState extends State<LoginPage> {
-  final TextEditingController _emailController =
-  TextEditingController(
+  final TextEditingController _emailController = TextEditingController(
     text: 'ijaz@test.com',
   );
-
-  final TextEditingController _passwordController =
-  TextEditingController(
+  final TextEditingController _passwordController = TextEditingController(
     text: '123456',
   );
-
   final AuthService _authService = AuthService();
-
   bool _loading = false;
 
   Future<void> _login() async {
     if (_loading) {
       return;
     }
-
+    final localizations = AppLocalizations.of(context)!;
     setState(() {
       _loading = true;
     });
-
     try {
       debugPrint('BUTTON PRESSED');
-
       await _authService.testSocket();
-
       if (!mounted) {
         return;
       }
-
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Socket connection successful'),
-        ),
+        SnackBar(content: Text(localizations.socket_connection_successful)),
       );
     } catch (e) {
       debugPrint('SOCKET TEST ERROR: $e');
-
       if (!mounted) {
         return;
       }
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(e.toString()),
-        ),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(e.toString())));
     } finally {
       if (mounted) {
         setState(() {
@@ -77,50 +69,62 @@ class _LoginPageState extends State<LoginPage> {
 
   @override
   Widget build(BuildContext context) {
+    final localizations = AppLocalizations.of(context)!;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Login'),
+        title: Text(localizations.login),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<Locale>(
+                value: widget.locale,
+                icon: const Icon(Icons.language),
+                items: const [
+                  DropdownMenuItem(value: Locale('en'), child: Text('EN')),
+                  DropdownMenuItem(value: Locale('ur'), child: Text('العربية')),
+                  DropdownMenuItem(value: Locale('ar'), child: Text('اردو')),
+                  DropdownMenuItem(value: Locale('hi'), child: Text('हिन्दी')),
+                  DropdownMenuItem(value: Locale('bn'), child: Text('বাংলা')),
+                ],
+                onChanged: (locale) {
+                  if (locale != null) {
+                    widget.onLocaleChanged(locale);
+                  }
+                },
+              ),
+            ),
+          ),
+        ],
       ),
       body: Padding(
         padding: const EdgeInsets.all(20),
         child: Column(
-          mainAxisAlignment:
-          MainAxisAlignment.center,
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
             TextField(
               controller: _emailController,
-              keyboardType:
-              TextInputType.emailAddress,
-              decoration:
-              const InputDecoration(
-                labelText: 'Email',
-              ),
+              keyboardType: TextInputType.emailAddress,
+              decoration: InputDecoration(labelText: localizations.test_connection),
             ),
             const SizedBox(height: 16),
             TextField(
               controller: _passwordController,
               obscureText: true,
-              decoration:
-              const InputDecoration(
-                labelText: 'Password',
-              ),
+              decoration: InputDecoration(labelText: localizations.password),
             ),
             const SizedBox(height: 24),
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
-                onPressed:
-                _loading ? null : _login,
+                onPressed: _loading ? null : _login,
                 child: _loading
                     ? const SizedBox(
-                  width: 22,
-                  height: 22,
-                  child:
-                  CircularProgressIndicator(
-                    strokeWidth: 2,
-                  ),
-                )
-                    : const Text('Test Connection'),
+                        width: 22,
+                        height: 22,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : Text(localizations.test_connection),
               ),
             ),
           ],
