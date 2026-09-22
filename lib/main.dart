@@ -1,40 +1,62 @@
-
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
-import 'package:realtime_chat_flutter/pages/user_list_page.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 
-import 'generated/l10n/app_localizations.dart';
-import 'login_page.dart';
+import 'app/app_router.dart';
+import 'core/di/injection.dart';
+import 'data/services/firebase_messaging_service.dart';
+import 'presentation/auth/cubit/auth_cubit.dart';
 
-void main() {
-  runApp(const MyApp());
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  await Firebase.initializeApp();
+
+  await setupDependencies();
+
+  final firebaseMessagingService = locator<FirebaseMessagingService>();
+
+  initializeFcmNotificationNavigation();
+
+  await firebaseMessagingService.initialize();
+
+  runApp(
+    BlocProvider(
+      create: (_) => locator<AuthCubit>(),
+      child: const RealtimeChatApp(),
+    ),
+  );
 }
 
-class MyApp extends StatefulWidget {
-  const MyApp({super.key});
+class RealtimeChatApp extends StatefulWidget {
+  const RealtimeChatApp({super.key});
 
   @override
-  State<MyApp> createState() => _MyAppState();
+  State<RealtimeChatApp> createState() => _RealtimeChatAppState();
 }
 
-class _MyAppState extends State<MyApp> {
-  Locale _locale = const Locale('en');
+class _RealtimeChatAppState extends State<RealtimeChatApp> {
+  @override
+  void initState() {
+    super.initState();
 
-  void _changeLocale(Locale locale) {
-    setState(() {
-      _locale = locale;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      locator<FirebaseMessagingService>().handleInitialMessage();
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
+    return MaterialApp.router(
       debugShowCheckedModeBanner: false,
-      locale: _locale,
-      supportedLocales: AppLocalizations.supportedLocales,
-      localizationsDelegates: AppLocalizations.localizationsDelegates,
-      home: LoginPage(
-        locale: _locale,
-        onLocaleChanged: _changeLocale,
+      title: 'Realtime Chat',
+      routerConfig: appRouter,
+      theme: ThemeData(
+        useMaterial3: true,
+        colorSchemeSeed: Colors.indigo,
+        inputDecorationTheme: const InputDecorationTheme(
+          border: OutlineInputBorder(),
+        ),
       ),
     );
   }
