@@ -27,12 +27,21 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   void _login() {
+    debugPrint('LOGIN PAGE: sign in pressed');
+
     if (!_formKey.currentState!.validate()) {
+      debugPrint('LOGIN PAGE: validation failed');
       return;
     }
 
+    final email = _emailController.text.trim();
+
+    debugPrint(
+      'LOGIN PAGE: submitting login for $email',
+    );
+
     context.read<AuthCubit>().login(
-      email: _emailController.text.trim(),
+      email: email,
       password: _passwordController.text,
     );
   }

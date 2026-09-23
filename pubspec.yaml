@@ -45,6 +45,7 @@ dependencies:
   flutter_local_notifications: ^19.5.0
   flutter_auto_localize: ^0.1.2
   connectivity_plus: ^6.0.0
+  agora_rtc_engine: ^6.6.4
 #  flutter_auto_localize:
 #    path: C:\Users\Develpoer\StudioProjects\flutter_auto_localize
 #  flutter_auto_localize: ^0.1.0

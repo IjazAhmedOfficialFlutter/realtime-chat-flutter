@@ -4,6 +4,9 @@ class UserModel {
   final String email;
   final bool isOnline;
   final DateTime? lastSeenAt;
+  final String? lastMessage;
+  final DateTime? lastMessageAt;
+  final int unreadCount;
 
   const UserModel({
     required this.id,
@@ -11,13 +14,21 @@ class UserModel {
     required this.email,
     this.isOnline = false,
     this.lastSeenAt,
+    this.lastMessage,
+    this.lastMessageAt,
+    this.unreadCount = 0,
   });
 
-  factory UserModel.fromJson(Map<String, dynamic> json) {
+  factory UserModel.fromJson(
+      Map<String, dynamic> json,
+      ) {
     return UserModel(
       id: json['id'] is int
           ? json['id']
-          : int.parse(json['id'].toString()),
+          : int.tryParse(
+        json['id']?.toString() ?? '',
+      ) ??
+          0,
       name: json['name']?.toString() ?? '',
       email: json['email']?.toString() ?? '',
       isOnline: json['isOnline'] == true,
@@ -26,6 +37,18 @@ class UserModel {
           : DateTime.tryParse(
         json['lastSeenAt'].toString(),
       ),
+      lastMessage: json['lastMessage']?.toString(),
+      lastMessageAt: json['lastMessageAt'] == null
+          ? null
+          : DateTime.tryParse(
+        json['lastMessageAt'].toString(),
+      ),
+      unreadCount: json['unreadCount'] is int
+          ? json['unreadCount']
+          : int.tryParse(
+        json['unreadCount']?.toString() ?? '',
+      ) ??
+          0,
     );
   }
 
@@ -36,6 +59,9 @@ class UserModel {
       'email': email,
       'isOnline': isOnline,
       'lastSeenAt': lastSeenAt?.toIso8601String(),
+      'lastMessage': lastMessage,
+      'lastMessageAt': lastMessageAt?.toIso8601String(),
+      'unreadCount': unreadCount,
     };
   }
 
@@ -45,6 +71,9 @@ class UserModel {
     String? email,
     bool? isOnline,
     DateTime? lastSeenAt,
+    String? lastMessage,
+    DateTime? lastMessageAt,
+    int? unreadCount,
   }) {
     return UserModel(
       id: id ?? this.id,
@@ -52,6 +81,9 @@ class UserModel {
       email: email ?? this.email,
       isOnline: isOnline ?? this.isOnline,
       lastSeenAt: lastSeenAt ?? this.lastSeenAt,
+      lastMessage: lastMessage ?? this.lastMessage,
+      lastMessageAt: lastMessageAt ?? this.lastMessageAt,
+      unreadCount: unreadCount ?? this.unreadCount,
     );
   }
 }
