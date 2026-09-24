@@ -46,6 +46,7 @@ dependencies:
   flutter_auto_localize: ^0.1.2
   connectivity_plus: ^6.0.0
   agora_rtc_engine: ^6.6.4
+  permission_handler: 12.0.3
 #  flutter_auto_localize:
 #    path: C:\Users\Develpoer\StudioProjects\flutter_auto_localize
 #  flutter_auto_localize: ^0.1.0

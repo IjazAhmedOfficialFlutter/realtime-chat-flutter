@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
 import 'package:flutter/material.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import '../../../core/api/calls_api.dart';
 import '../../../model/call_model.dart';
@@ -28,7 +29,8 @@ class CallPage extends StatefulWidget {
 }
 
 class _CallPageState extends State<CallPage> {
-  late RtcEngine _engine;
+  RtcEngine? _engine;
+  RtcEngineEventHandler? _eventHandler;
 
   Timer? _durationTimer;
   DateTime? _connectedAt;
@@ -37,6 +39,7 @@ class _CallPageState extends State<CallPage> {
   bool _initialized = false;
   bool _joined = false;
   bool _remoteJoined = false;
+
   bool _connectedReported = false;
   bool _muted = false;
   bool _speakerEnabled = true;
@@ -46,19 +49,26 @@ class _CallPageState extends State<CallPage> {
   int _durationSeconds = 0;
   int? _remoteUid;
 
-  bool get _isVideo => widget.call.callType.toLowerCase() == 'video';
+  bool get _isVideo => widget.call.callType.trim().toLowerCase() == 'video';
 
   int get _localUid => widget.agoraToken.uid;
 
   String get _displayName {
     final name = widget.receiverName.trim();
+
     return name.isEmpty ? 'Unknown' : name;
   }
 
   String get _initial {
     final name = widget.receiverName.trim();
-    return name.isEmpty ? '?' : name.characters.first.toUpperCase();
+
+    if (name.isEmpty) {
+      return '?';
+    }
+
+    return name.substring(0, 1).toUpperCase();
   }
+
   String _tokenDebug(String token) {
     if (token.isEmpty) {
       return 'EMPTY';
@@ -73,31 +83,20 @@ class _CallPageState extends State<CallPage> {
         'suffix=${token.substring(token.length - 6)}';
   }
 
-
   @override
   void initState() {
     super.initState();
-    debugPrint('========== CALL PAGE DEBUG ==========');
+
+    debugPrint('==========================================');
+    debugPrint('CALL PAGE OPENED');
     debugPrint('CALL ID: ${widget.call.id}');
     debugPrint('CALL TYPE: ${widget.call.callType}');
     debugPrint('CALLER ID: ${widget.call.callerId}');
     debugPrint('RECEIVER ID: ${widget.call.receiverId}');
-    debugPrint('ROOM NAME: ${widget.agoraToken.roomName}');
-    debugPrint('LOCAL UID: ${widget.agoraToken.uid}');
-    debugPrint('AGORA APP ID: $agoraAppId');
-    debugPrint(
-      'AGORA TOKEN: ${_tokenDebug(widget.agoraToken.token)}',
-    );
-    debugPrint('====================================');
-
-    debugPrint('CALL PAGE: opened');
-    debugPrint('CALL PAGE: callId=${widget.call.id}');
-    debugPrint('CALL PAGE: callType=${widget.call.callType}');
-    debugPrint('CALL PAGE: room=${widget.agoraToken.roomName}');
-    debugPrint('CALL PAGE: uid=$_localUid');
-    debugPrint(
-      'CALL PAGE: tokenLength=${widget.agoraToken.token.length}',
-    );
+    debugPrint('CHANNEL: ${widget.agoraToken.roomName}');
+    debugPrint('LOCAL UID: $_localUid');
+    debugPrint('TOKEN: ${_tokenDebug(widget.agoraToken.token)}');
+    debugPrint('==========================================');
 
     _initializeAgora();
   }
@@ -109,29 +108,66 @@ class _CallPageState extends State<CallPage> {
     super.dispose();
   }
 
+  Future<bool> _requestPermissions() async {
+    final microphoneStatus = await Permission.microphone.request();
+
+    debugPrint(
+      'AGORA MICROPHONE PERMISSION: '
+      '$microphoneStatus',
+    );
+
+    if (!microphoneStatus.isGranted) {
+      if (microphoneStatus.isPermanentlyDenied) {
+        await openAppSettings();
+      }
+
+      _showError('Microphone permission is required for calls.');
+
+      return false;
+    }
+
+    if (_isVideo) {
+      final cameraStatus = await Permission.camera.request();
+
+      debugPrint(
+        'AGORA CAMERA PERMISSION: '
+        '$cameraStatus',
+      );
+
+      if (!cameraStatus.isGranted) {
+        if (cameraStatus.isPermanentlyDenied) {
+          await openAppSettings();
+        }
+
+        _showError('Camera permission is required for video calls.');
+
+        return false;
+      }
+    }
+
+    return true;
+  }
+
   Future<void> _initializeAgora() async {
-    debugPrint('========== AGORA INITIALIZATION ==========');
-    debugPrint('CALL ID: ${widget.call.id}');
+    debugPrint('==========================================');
+    debugPrint('AGORA INITIALIZATION START');
     debugPrint('APP ID: $agoraAppId');
     debugPrint('CHANNEL: ${widget.agoraToken.roomName}');
     debugPrint('UID: $_localUid');
-    debugPrint(
-      'TOKEN: ${_tokenDebug(widget.agoraToken.token)}',
-    );
     debugPrint('VIDEO CALL: $_isVideo');
     debugPrint('==========================================');
 
-    if (agoraAppId.isEmpty) {
+    if (agoraAppId.trim().isEmpty) {
       _showError('Agora App ID is not configured.');
       return;
     }
 
-    if (widget.agoraToken.token.isEmpty) {
+    if (widget.agoraToken.token.trim().isEmpty) {
       _showError('Agora token is missing.');
       return;
     }
 
-    if (widget.agoraToken.roomName.isEmpty) {
+    if (widget.agoraToken.roomName.trim().isEmpty) {
       _showError('Agora channel is missing.');
       return;
     }
@@ -141,251 +177,438 @@ class _CallPageState extends State<CallPage> {
       return;
     }
 
-    try {
-      debugPrint('AGORA STEP 1: createAgoraRtcEngine');
+    final permissionGranted = await _requestPermissions();
 
-      _engine = createAgoraRtcEngine();
+    if (!permissionGranted) {
+      return;
+    }
+
+    try {
+      debugPrint('AGORA STEP 1: create engine');
+
+      final engine = createAgoraRtcEngine();
+
+      _engine = engine;
       _engineCreated = true;
 
-      debugPrint('AGORA STEP 2: initialize');
+      debugPrint('AGORA STEP 2: initialize engine');
 
-      await _engine.initialize(
+      await engine.initialize(
         const RtcEngineContext(
           appId: agoraAppId,
           channelProfile: ChannelProfileType.channelProfileCommunication,
         ),
       );
 
-      debugPrint('AGORA STEP 3: initialize SUCCESS');
+      debugPrint('AGORA STEP 2 SUCCESS');
 
-      _engine.registerEventHandler(
-        RtcEngineEventHandler(
-          onJoinChannelSuccess: (connection, elapsed) async {
-            debugPrint('==========================================');
-            debugPrint('AGORA LOCAL JOIN SUCCESS');
-            debugPrint('CALL ID: ${widget.call.id}');
-            debugPrint('CHANNEL: ${connection.channelId}');
-            debugPrint('LOCAL UID: ${connection.localUid}');
-            debugPrint('EXPECTED UID: $_localUid');
-            debugPrint('ELAPSED: $elapsed');
-            debugPrint('==========================================');
+      _eventHandler = RtcEngineEventHandler(
+        onJoinChannelSuccess: (connection, elapsed) async {
+          debugPrint('==========================================');
+          debugPrint('AGORA LOCAL JOIN SUCCESS');
+          debugPrint('CALL ID: ${widget.call.id}');
+          debugPrint('CHANNEL: ${connection.channelId}');
+          debugPrint('LOCAL UID: ${connection.localUid}');
+          debugPrint('EXPECTED UID: $_localUid');
+          debugPrint('ELAPSED: $elapsed');
+          debugPrint('==========================================');
 
-            if (!mounted) {
-              return;
-            }
+          if (!mounted) {
+            return;
+          }
 
-            setState(() {
-              _joined = true;
-            });
+          setState(() {
+            _joined = true;
+          });
 
-            if (!_isVideo) {
-              try {
-                await _engine.setEnableSpeakerphone(true);
+          try {
+            await engine.enableLocalAudio(true);
 
-                if (!mounted) {
-                  return;
-                }
+            debugPrint('AGORA LOCAL AUDIO: ENABLED');
+          } catch (e) {
+            debugPrint('AGORA LOCAL AUDIO ENABLE ERROR: $e');
+          }
 
-                setState(() {
-                  _speakerEnabled = true;
-                });
-
-                debugPrint(
-                  'AGORA SPEAKER: enabled',
-                );
-              } catch (e) {
-                debugPrint(
-                  'AGORA SPEAKER ERROR: $e',
-                );
-              }
-            }
-          },
-
-          onUserJoined: (connection, remoteUid, elapsed) async {
-            debugPrint('==========================================');
-            debugPrint('AGORA REMOTE USER JOINED');
-            debugPrint('CALL ID: ${widget.call.id}');
-            debugPrint('CHANNEL: ${connection.channelId}');
-            debugPrint('REMOTE UID: $remoteUid');
-            debugPrint('LOCAL UID: ${connection.localUid}');
-            debugPrint('ELAPSED: $elapsed');
-            debugPrint('==========================================');
-
-            if (!mounted) {
-              return;
-            }
-
-            setState(() {
-              _remoteUid = remoteUid;
-              _remoteJoined = true;
-              _connectedAt = DateTime.now();
-            });
-
-            _startDurationTimer();
-
-            if (_connectedReported) {
-              return;
-            }
-
-            _connectedReported = true;
-
-            debugPrint(
-              'CALL CONNECTED API START: callId=${widget.call.id}',
-            );
-
+          if (!_isVideo) {
             try {
-              await widget.callCubit.connectedCall(
-                widget.call.id,
-              );
+              await engine.setEnableSpeakerphone(_speakerEnabled);
 
               debugPrint(
-                'CALL CONNECTED API SUCCESS: callId=${widget.call.id}',
+                'AGORA SPEAKER: '
+                '${_speakerEnabled ? 'ON' : 'OFF'}',
               );
             } catch (e) {
-              debugPrint(
-                'CALL CONNECTED API ERROR: $e',
-              );
+              debugPrint('AGORA SPEAKER ERROR: $e');
             }
-          },
+          }
+        },
 
-          onUserOffline: (
-              connection,
-              remoteUid,
-              reason,
-              ) {
-            debugPrint('==========================================');
-            debugPrint('AGORA REMOTE USER OFFLINE');
-            debugPrint('CALL ID: ${widget.call.id}');
-            debugPrint('CHANNEL: ${connection.channelId}');
-            debugPrint('REMOTE UID: $remoteUid');
-            debugPrint('REASON: $reason');
-            debugPrint('==========================================');
+        onUserJoined: (connection, remoteUid, elapsed) async {
+          debugPrint('==========================================');
+          debugPrint('AGORA REMOTE USER JOINED');
+          debugPrint('CALL ID: ${widget.call.id}');
+          debugPrint('CHANNEL: ${connection.channelId}');
+          debugPrint('REMOTE UID: $remoteUid');
+          debugPrint('LOCAL UID: ${connection.localUid}');
+          debugPrint('ELAPSED: $elapsed');
+          debugPrint('==========================================');
 
-            if (!mounted) {
-              return;
-            }
+          if (remoteUid <= 0) {
+            debugPrint(
+              'AGORA INVALID REMOTE UID: '
+              '$remoteUid',
+            );
+            return;
+          }
 
+          if (!mounted) {
+            return;
+          }
+
+          setState(() {
+            _remoteUid = remoteUid;
+            _remoteJoined = true;
+            _connectedAt = DateTime.now();
+          });
+
+          _startDurationTimer();
+
+          if (_connectedReported) {
+            return;
+          }
+
+          _connectedReported = true;
+
+          debugPrint(
+            'CALL CONNECTED API START '
+            'callId=${widget.call.id}',
+          );
+
+          try {
+            await widget.callCubit.connectedCall(widget.call.id);
+
+            debugPrint(
+              'CALL CONNECTED API SUCCESS '
+              'callId=${widget.call.id}',
+            );
+          } catch (e) {
+            debugPrint('CALL CONNECTED API ERROR: $e');
+          }
+        },
+
+        onUserOffline: (connection, remoteUid, reason) {
+          debugPrint('==========================================');
+          debugPrint('AGORA REMOTE USER OFFLINE');
+          debugPrint('CALL ID: ${widget.call.id}');
+          debugPrint('CHANNEL: ${connection.channelId}');
+          debugPrint('REMOTE UID: $remoteUid');
+          debugPrint('REASON: $reason');
+          debugPrint('==========================================');
+
+          if (!mounted) {
+            return;
+          }
+
+          if (_remoteUid == remoteUid) {
             setState(() {
-              if (_remoteUid == remoteUid) {
-                _remoteUid = null;
-                _remoteJoined = false;
-              }
+              _remoteUid = null;
+              _remoteJoined = false;
             });
-          },
+          }
 
-          onError: (errorCode, errorMessage) {
-            debugPrint('==========================================');
-            debugPrint('AGORA ERROR');
-            debugPrint('CALL ID: ${widget.call.id}');
-            debugPrint('CODE: $errorCode');
-            debugPrint('MESSAGE: $errorMessage');
-            debugPrint('CHANNEL: ${widget.agoraToken.roomName}');
-            debugPrint('UID: $_localUid');
-            debugPrint('==========================================');
-          },
+          _handleRemoteDisconnected();
+        },
 
-          onConnectionStateChanged: (
-              connection,
-              state,
-              reason,
-              ) {
-            debugPrint(
-              'AGORA CONNECTION STATE: '
-                  'callId=${widget.call.id} '
-                  'state=$state '
-                  'reason=$reason '
-                  'channel=${connection.channelId} '
-                  'uid=${connection.localUid}',
-            );
-          },
+        onFirstLocalAudioFramePublished: (connection, uid) {
+          debugPrint(
+            'AGORA FIRST LOCAL AUDIO PUBLISHED '
+            'uid=$uid',
+          );
+        },
 
-          onLocalVideoStateChanged: (
-              source,
-              state,
-              error,
-              ) {
-            debugPrint(
-              'AGORA LOCAL VIDEO: '
-                  'source=$source '
-                  'state=$state '
-                  'error=$error',
-            );
-          },
+        onFirstRemoteAudioFrame: (connection, uid, elapsed) {
+          debugPrint(
+            'AGORA FIRST REMOTE AUDIO FRAME '
+            'uid=$uid '
+            'elapsed=$elapsed',
+          );
+        },
 
-          onRemoteVideoStateChanged: (
-              connection,
-              remoteUid,
-              state,
-              reason,
-              elapsed,
-              ) {
-            debugPrint(
-              'AGORA REMOTE VIDEO: '
-                  'callId=${widget.call.id} '
-                  'remoteUid=$remoteUid '
-                  'state=$state '
-                  'reason=$reason '
-                  'elapsed=$elapsed',
-            );
-          },
-        ),
+        onRemoteAudioStateChanged:
+            (connection, remoteUid, state, reason, elapsed) {
+              debugPrint(
+                'AGORA REMOTE AUDIO '
+                'uid=$remoteUid '
+                'state=$state '
+                'reason=$reason '
+                'elapsed=$elapsed',
+              );
+            },
+
+        onLocalAudioStateChanged: (connection, state, reason) {
+          debugPrint(
+            'AGORA LOCAL AUDIO '
+            'state=$state '
+            'reason=$reason',
+          );
+        },
+
+        onAudioPublishStateChanged: (channel, oldState, newState, elapsed) {
+          debugPrint(
+            'AGORA AUDIO PUBLISH STATE '
+            'channel=$channel '
+            'old=$oldState '
+            'new=$newState '
+            'elapsed=$elapsed',
+          );
+        },
+
+        onAudioSubscribeStateChanged:
+            (channel, uid, oldState, newState, elapsed) {
+              debugPrint(
+                'AGORA AUDIO SUBSCRIBE STATE '
+                'channel=$channel '
+                'uid=$uid '
+                'old=$oldState '
+                'new=$newState '
+                'elapsed=$elapsed',
+              );
+            },
+
+        onFirstLocalVideoFramePublished: (connection, uid) {
+          debugPrint(
+            'AGORA FIRST LOCAL VIDEO PUBLISHED '
+            'uid=$uid',
+          );
+        },
+
+        onFirstLocalVideoFrame: (source, width, height, elapsed) {
+          debugPrint(
+            'AGORA FIRST LOCAL VIDEO FRAME '
+            'source=$source '
+            'size=${width}x$height '
+            'elapsed=$elapsed',
+          );
+        },
+
+        onFirstRemoteVideoDecoded:
+            (connection, remoteUid, width, height, elapsed) {
+              debugPrint(
+                'AGORA FIRST REMOTE VIDEO DECODED '
+                'uid=$remoteUid '
+                'size=${width}x$height '
+                'elapsed=$elapsed',
+              );
+            },
+
+        onFirstRemoteVideoFrame:
+            (connection, remoteUid, width, height, elapsed) {
+              debugPrint(
+                'AGORA FIRST REMOTE VIDEO FRAME '
+                'uid=$remoteUid '
+                'size=${width}x$height '
+                'elapsed=$elapsed',
+              );
+            },
+
+        onLocalVideoStateChanged: (source, state, reason) {
+          debugPrint(
+            'AGORA LOCAL VIDEO '
+            'source=$source '
+            'state=$state '
+            'reason=$reason',
+          );
+        },
+
+        onRemoteVideoStateChanged:
+            (connection, remoteUid, state, reason, elapsed) {
+              debugPrint(
+                'AGORA REMOTE VIDEO '
+                'uid=$remoteUid '
+                'state=$state '
+                'reason=$reason '
+                'elapsed=$elapsed',
+              );
+            },
+
+        onUserMuteAudio: (connection, remoteUid, muted) {
+          debugPrint(
+            'AGORA REMOTE USER AUDIO '
+            'uid=$remoteUid '
+            'muted=$muted',
+          );
+        },
+
+        onUserMuteVideo: (connection, remoteUid, muted) {
+          debugPrint(
+            'AGORA REMOTE USER VIDEO '
+            'uid=$remoteUid '
+            'muted=$muted',
+          );
+        },
+
+        onConnectionStateChanged: (connection, state, reason) {
+          debugPrint(
+            'AGORA CONNECTION STATE '
+            'callId=${widget.call.id} '
+            'state=$state '
+            'reason=$reason '
+            'channel=${connection.channelId} '
+            'uid=${connection.localUid}',
+          );
+
+          if (state == ConnectionStateType.connectionStateFailed) {
+            _handleLocalConnectionFailure();
+          }
+        },
+
+        onConnectionInterrupted: (connection) {
+          debugPrint(
+            'AGORA CONNECTION INTERRUPTED '
+            'channel=${connection.channelId} '
+            'uid=${connection.localUid}',
+          );
+        },
+
+        onConnectionLost: (connection) {
+          debugPrint(
+            'AGORA CONNECTION LOST '
+            'channel=${connection.channelId} '
+            'uid=${connection.localUid}',
+          );
+
+          _handleLocalConnectionFailure();
+        },
+
+        onConnectionBanned: (connection) {
+          debugPrint(
+            'AGORA CONNECTION BANNED '
+            'channel=${connection.channelId} '
+            'uid=${connection.localUid}',
+          );
+
+          _handleLocalConnectionFailure();
+        },
+
+        onRequestToken: (connection) {
+          debugPrint(
+            'AGORA TOKEN REQUESTED '
+            'channel=${connection.channelId} '
+            'uid=${connection.localUid}',
+          );
+        },
+
+        onPermissionError: (permissionType) {
+          debugPrint(
+            'AGORA PERMISSION ERROR: '
+            '$permissionType',
+          );
+        },
+
+        onPermissionGranted: (permissionType) {
+          debugPrint(
+            'AGORA PERMISSION GRANTED: '
+            '$permissionType',
+          );
+        },
+
+        onError: (errorCode, errorMessage) {
+          debugPrint('==========================================');
+          debugPrint('AGORA ERROR');
+          debugPrint('CALL ID: ${widget.call.id}');
+          debugPrint('CODE: $errorCode');
+          debugPrint('MESSAGE: $errorMessage');
+          debugPrint('CHANNEL: ${widget.agoraToken.roomName}');
+          debugPrint('UID: $_localUid');
+          debugPrint('==========================================');
+        },
       );
 
-      debugPrint('AGORA STEP 4: event handler registered');
+      engine.registerEventHandler(_eventHandler!);
 
-      debugPrint('AGORA STEP 5: enableAudio');
+      debugPrint('AGORA STEP 3: event handler registered');
 
-      await _engine.enableAudio();
+      debugPrint('AGORA STEP 4: enable audio');
 
-      debugPrint('AGORA STEP 5 SUCCESS: audio enabled');
+      await engine.enableAudio();
+
+      await engine.enableLocalAudio(true);
+
+      debugPrint('AGORA AUDIO READY');
 
       if (_isVideo) {
-        debugPrint('AGORA STEP 6: enableVideo');
+        debugPrint('AGORA STEP 5: enable video');
 
-        await _engine.enableVideo();
+        await engine.enableVideo();
 
-        debugPrint('AGORA STEP 6 SUCCESS: video enabled');
+        await engine.enableLocalVideo(true);
 
-        debugPrint('AGORA STEP 7: startPreview');
+        debugPrint('AGORA VIDEO READY');
 
-        await _engine.startPreview();
+        await engine.setupLocalVideo(
+          const VideoCanvas(
+            uid: 0,
+            sourceType: VideoSourceType.videoSourceCamera,
+            renderMode: RenderModeType.renderModeHidden,
+            mirrorMode: VideoMirrorModeType.videoMirrorModeEnabled,
+          ),
+        );
 
-        debugPrint('AGORA STEP 7 SUCCESS: preview started');
+        debugPrint('AGORA LOCAL VIDEO VIEW READY');
+
+        await engine.startPreview();
+
+        debugPrint('AGORA LOCAL PREVIEW STARTED');
       }
 
-      final options = ChannelMediaOptions(
+      if (!_isVideo) {
+        try {
+          await engine.setDefaultAudioRouteToSpeakerphone(true);
+
+          await engine.setEnableSpeakerphone(true);
+
+          if (mounted) {
+            setState(() {
+              _speakerEnabled = true;
+            });
+          }
+
+          debugPrint('AGORA DEFAULT AUDIO ROUTE: SPEAKER');
+        } catch (e) {
+          debugPrint('AGORA AUDIO ROUTE ERROR: $e');
+        }
+      }
+
+      final mediaOptions = ChannelMediaOptions(
         clientRoleType: ClientRoleType.clientRoleBroadcaster,
         publishMicrophoneTrack: true,
         publishCameraTrack: _isVideo,
         autoSubscribeAudio: true,
         autoSubscribeVideo: _isVideo,
+        enableAudioRecordingOrPlayout: true,
       );
 
       debugPrint('==========================================');
-      debugPrint('AGORA STEP 8: JOIN CHANNEL');
+      debugPrint('AGORA JOIN CHANNEL');
       debugPrint('CALL ID: ${widget.call.id}');
-      debugPrint('APP ID: $agoraAppId');
       debugPrint('CHANNEL: ${widget.agoraToken.roomName}');
       debugPrint('UID: $_localUid');
-      debugPrint(
-        'TOKEN: ${_tokenDebug(widget.agoraToken.token)}',
-      );
+      debugPrint('VIDEO: $_isVideo');
       debugPrint('PUBLISH AUDIO: true');
       debugPrint('PUBLISH VIDEO: $_isVideo');
       debugPrint('SUBSCRIBE AUDIO: true');
       debugPrint('SUBSCRIBE VIDEO: $_isVideo');
+      debugPrint('AUDIO RECORDING/PLAYOUT: true');
       debugPrint('==========================================');
 
-      await _engine.joinChannel(
+      await engine.joinChannel(
         token: widget.agoraToken.token,
         channelId: widget.agoraToken.roomName,
         uid: _localUid,
-        options: options,
+        options: mediaOptions,
       );
 
-      debugPrint(
-        'AGORA STEP 9: joinChannel() RETURNED',
-      );
+      debugPrint('AGORA JOIN CHANNEL RETURNED');
 
       if (!mounted) {
         return;
@@ -396,154 +619,255 @@ class _CallPageState extends State<CallPage> {
       });
 
       debugPrint(
-        'AGORA INITIALIZATION COMPLETE: callId=${widget.call.id}',
+        'AGORA INITIALIZATION COMPLETE '
+        'callId=${widget.call.id}',
       );
     } catch (e, stackTrace) {
       debugPrint('==========================================');
       debugPrint('AGORA INITIALIZATION ERROR');
       debugPrint('CALL ID: ${widget.call.id}');
-      debugPrint('APP ID: $agoraAppId');
       debugPrint('CHANNEL: ${widget.agoraToken.roomName}');
       debugPrint('UID: $_localUid');
-      debugPrint(
-        'TOKEN: ${_tokenDebug(widget.agoraToken.token)}',
-      );
       debugPrint('ERROR: $e');
       debugPrint('STACK: $stackTrace');
       debugPrint('==========================================');
 
-      _showError(
-        'Unable to start the call.',
-      );
+      await _disposeAgora();
+
+      _showError('Unable to start the call.');
     }
   }
 
   void _startDurationTimer() {
     _durationTimer?.cancel();
 
-    _durationTimer = Timer.periodic(
-      const Duration(seconds: 1),
-          (_) {
-        if (!mounted || _connectedAt == null) {
-          return;
-        }
+    _durationTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted || _connectedAt == null) {
+        return;
+      }
 
-        setState(() {
-          _durationSeconds =
-              DateTime.now().difference(_connectedAt!).inSeconds;
-        });
-      },
-    );
+      setState(() {
+        _durationSeconds = DateTime.now().difference(_connectedAt!).inSeconds;
+      });
+    });
   }
 
   Future<void> _disposeAgora() async {
-    if (!_engineCreated) {
+    final engine = _engine;
+
+    if (engine == null || !_engineCreated) {
       return;
     }
 
+    debugPrint('AGORA DISPOSE START');
+
+    _durationTimer?.cancel();
+
     try {
-      debugPrint('AGORA: disposing');
+      if (_eventHandler != null) {
+        try {
+          engine.unregisterEventHandler(_eventHandler!);
+        } catch (e) {
+          debugPrint('AGORA UNREGISTER HANDLER ERROR: $e');
+        }
+
+        _eventHandler = null;
+      }
+
+      if (_isVideo) {
+        try {
+          await engine.stopPreview();
+        } catch (e) {
+          debugPrint('AGORA STOP PREVIEW ERROR: $e');
+        }
+      }
 
       if (_joined) {
-        await _engine.leaveChannel();
+        try {
+          await engine.leaveChannel();
+
+          debugPrint('AGORA LEFT CHANNEL');
+        } catch (e) {
+          debugPrint('AGORA LEAVE CHANNEL ERROR: $e');
+        }
+
         _joined = false;
       }
 
-      await _engine.release();
+      try {
+        await engine.release();
 
-      _engineCreated = false;
-
-      debugPrint('AGORA: disposed');
+        debugPrint('AGORA ENGINE RELEASED');
+      } catch (e) {
+        debugPrint('AGORA RELEASE ERROR: $e');
+      }
     } catch (e) {
-      debugPrint(
-        'AGORA DISPOSE ERROR: $e',
-      );
+      debugPrint('AGORA DISPOSE ERROR: $e');
+    } finally {
+      _engine = null;
+      _engineCreated = false;
     }
+
+    debugPrint('AGORA DISPOSE COMPLETE');
+  }
+
+  Future<void> _handleRemoteDisconnected() async {
+    if (_endingCall) {
+      return;
+    }
+
+    debugPrint('REMOTE DISCONNECTED -> END LOCAL CALL');
+
+    if (mounted) {
+      setState(() {
+        _endingCall = true;
+      });
+    }
+
+    _durationTimer?.cancel();
+
+    await _disposeAgora();
+
+    try {
+      await widget.callCubit.endCall(widget.call.id);
+
+      debugPrint('REMOTE DISCONNECT END CALL API SUCCESS');
+    } catch (e) {
+      debugPrint('REMOTE DISCONNECT END CALL API ERROR: $e');
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    Navigator.of(context).pop();
+  }
+
+  Future<void> _handleLocalConnectionFailure() async {
+    if (_endingCall) {
+      return;
+    }
+
+    debugPrint('LOCAL AGORA CONNECTION FAILURE -> END CALL');
+
+    if (mounted) {
+      setState(() {
+        _endingCall = true;
+      });
+    }
+
+    _durationTimer?.cancel();
+
+    await _disposeAgora();
+
+    try {
+      await widget.callCubit.endCall(widget.call.id);
+
+      debugPrint('LOCAL CONNECTION FAILURE END CALL API SUCCESS');
+    } catch (e) {
+      debugPrint('LOCAL CONNECTION FAILURE END CALL API ERROR: $e');
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    Navigator.of(context).pop();
   }
 
   Future<void> _toggleMute() async {
-    if (!_engineCreated || _endingCall) {
+    final engine = _engine;
+
+    if (engine == null || !_engineCreated || _endingCall) {
       return;
     }
 
     try {
-      final next = !_muted;
+      final nextMuted = !_muted;
 
-      await _engine.muteLocalAudioStream(next);
+      await engine.muteLocalAudioStream(nextMuted);
 
       if (!mounted) {
         return;
       }
 
       setState(() {
-        _muted = next;
+        _muted = nextMuted;
       });
+
+      debugPrint('AGORA LOCAL MUTE: $nextMuted');
     } catch (e) {
-      debugPrint(
-        'AGORA MUTE ERROR: $e',
-      );
+      debugPrint('AGORA MUTE ERROR: $e');
     }
   }
 
   Future<void> _toggleSpeaker() async {
-    if (!_engineCreated || _endingCall) {
+    final engine = _engine;
+
+    if (engine == null || !_engineCreated || _endingCall) {
       return;
     }
 
     try {
-      final next = !_speakerEnabled;
+      final nextSpeaker = !_speakerEnabled;
 
-      await _engine.setEnableSpeakerphone(next);
+      await engine.setEnableSpeakerphone(nextSpeaker);
 
       if (!mounted) {
         return;
       }
 
       setState(() {
-        _speakerEnabled = next;
+        _speakerEnabled = nextSpeaker;
       });
+
+      debugPrint('AGORA SPEAKER: $nextSpeaker');
     } catch (e) {
-      debugPrint(
-        'AGORA SPEAKER ERROR: $e',
-      );
+      debugPrint('AGORA SPEAKER ERROR: $e');
     }
   }
 
   Future<void> _toggleCamera() async {
-    if (!_isVideo || !_engineCreated || _endingCall) {
+    final engine = _engine;
+
+    if (!_isVideo || engine == null || !_engineCreated || _endingCall) {
       return;
     }
 
     try {
-      final next = !_cameraEnabled;
+      final nextCamera = !_cameraEnabled;
 
-      await _engine.enableLocalVideo(next);
+      await engine.enableLocalVideo(nextCamera);
+
+      await engine.muteLocalVideoStream(!nextCamera);
 
       if (!mounted) {
         return;
       }
 
       setState(() {
-        _cameraEnabled = next;
+        _cameraEnabled = nextCamera;
       });
+
+      debugPrint('AGORA LOCAL CAMERA: $nextCamera');
     } catch (e) {
-      debugPrint(
-        'AGORA CAMERA ERROR: $e',
-      );
+      debugPrint('AGORA CAMERA ERROR: $e');
     }
   }
 
   Future<void> _switchCamera() async {
-    if (!_isVideo || !_engineCreated || _endingCall) {
+    final engine = _engine;
+
+    if (!_isVideo || engine == null || !_engineCreated || _endingCall) {
       return;
     }
 
     try {
-      await _engine.switchCamera();
+      await engine.switchCamera();
+
+      debugPrint('AGORA CAMERA SWITCHED');
     } catch (e) {
-      debugPrint(
-        'AGORA SWITCH CAMERA ERROR: $e',
-      );
+      debugPrint('AGORA SWITCH CAMERA ERROR: $e');
     }
   }
 
@@ -552,22 +876,22 @@ class _CallPageState extends State<CallPage> {
       return;
     }
 
-    setState(() {
-      _endingCall = true;
-    });
+    if (mounted) {
+      setState(() {
+        _endingCall = true;
+      });
+    }
 
     _durationTimer?.cancel();
 
-    try {
-      await _disposeAgora();
+    await _disposeAgora();
 
-      await widget.callCubit.endCall(
-        widget.call.id,
-      );
+    try {
+      await widget.callCubit.endCall(widget.call.id);
+
+      debugPrint('END CALL API SUCCESS');
     } catch (e) {
-      debugPrint(
-        'END CALL ERROR: $e',
-      );
+      debugPrint('END CALL API ERROR: $e');
     }
 
     if (!mounted) {
@@ -589,29 +913,32 @@ class _CallPageState extends State<CallPage> {
 
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
-        ..showSnackBar(
-          SnackBar(
-            content: Text(message),
-          ),
-        );
+        ..showSnackBar(SnackBar(content: Text(message)));
     });
   }
 
-  Widget _buildVideoBackground() {
-    if (!_remoteJoined || _remoteUid == null) {
+  Widget _buildRemoteVideo() {
+    final engine = _engine;
+    final remoteUid = _remoteUid;
+
+    if (engine == null ||
+        !_engineCreated ||
+        !_remoteJoined ||
+        remoteUid == null ||
+        remoteUid <= 0) {
       return _buildVideoWaitingView();
     }
 
     return Positioned.fill(
       child: AgoraVideoView(
         controller: VideoViewController.remote(
-          rtcEngine: _engine,
+          rtcEngine: engine,
           canvas: VideoCanvas(
-            uid: _remoteUid,
+            uid: remoteUid,
+            sourceType: VideoSourceType.videoSourceRemote,
+            renderMode: RenderModeType.renderModeHidden,
           ),
-          connection: RtcConnection(
-            channelId: widget.agoraToken.roomName,
-          ),
+          connection: RtcConnection(channelId: widget.agoraToken.roomName),
         ),
       ),
     );
@@ -629,10 +956,7 @@ class _CallPageState extends State<CallPage> {
                   gradient: LinearGradient(
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
-                    colors: [
-                      Color(0xFF202020),
-                      Color(0xFF080808),
-                    ],
+                    colors: [Color(0xFF202020), Color(0xFF080808)],
                   ),
                 ),
               ),
@@ -641,10 +965,7 @@ class _CallPageState extends State<CallPage> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  _buildAvatar(
-                    radius: 54,
-                    large: true,
-                  ),
+                  _buildAvatar(radius: 54, large: true),
                   const SizedBox(height: 22),
                   Text(
                     _displayName,
@@ -662,11 +983,9 @@ class _CallPageState extends State<CallPage> {
                         ? 'Connecting...'
                         : !_remoteJoined
                         ? 'Waiting for $_displayName...'
-                        : 'Connected',
+                        : 'Camera is off',
                     style: TextStyle(
-                      color: Colors.white.withValues(
-                        alpha: 0.62,
-                      ),
+                      color: Colors.white.withValues(alpha: 0.62),
                       fontSize: 14,
                     ),
                   ),
@@ -680,7 +999,10 @@ class _CallPageState extends State<CallPage> {
   }
 
   Widget _buildLocalPreview() {
+    final engine = _engine;
+
     if (!_isVideo ||
+        engine == null ||
         !_engineCreated ||
         !_initialized ||
         !_cameraEnabled) {
@@ -711,9 +1033,11 @@ class _CallPageState extends State<CallPage> {
         clipBehavior: Clip.antiAlias,
         child: AgoraVideoView(
           controller: VideoViewController(
-            rtcEngine: _engine,
-            canvas: VideoCanvas(
-              uid: _localUid,
+            rtcEngine: engine,
+            canvas: const VideoCanvas(
+              uid: 0,
+              sourceType: VideoSourceType.videoSourceCamera,
+              renderMode: RenderModeType.renderModeHidden,
               mirrorMode: VideoMirrorModeType.videoMirrorModeEnabled,
             ),
           ),
@@ -729,20 +1053,14 @@ class _CallPageState extends State<CallPage> {
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [
-              Color(0xFF202020),
-              Color(0xFF080808),
-            ],
+            colors: [Color(0xFF202020), Color(0xFF080808)],
           ),
         ),
         child: Center(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              _buildAvatar(
-                radius: 68,
-                large: true,
-              ),
+              _buildAvatar(radius: 68, large: true),
               const SizedBox(height: 26),
               Text(
                 _displayName,
@@ -761,13 +1079,9 @@ class _CallPageState extends State<CallPage> {
                     ? 'Connecting...'
                     : !_remoteJoined
                     ? 'Ringing...'
-                    : _formatDuration(
-                  _durationSeconds,
-                ),
+                    : _formatDuration(_durationSeconds),
                 style: TextStyle(
-                  color: Colors.white.withValues(
-                    alpha: 0.65,
-                  ),
+                  color: Colors.white.withValues(alpha: 0.65),
                   fontSize: 15,
                   fontWeight: FontWeight.w500,
                 ),
@@ -779,10 +1093,7 @@ class _CallPageState extends State<CallPage> {
     );
   }
 
-  Widget _buildAvatar({
-    required double radius,
-    bool large = false,
-  }) {
+  Widget _buildAvatar({required double radius, bool large = false}) {
     return Container(
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
@@ -815,12 +1126,7 @@ class _CallPageState extends State<CallPage> {
       child: SafeArea(
         bottom: false,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(
-            16,
-            10,
-            16,
-            12,
-          ),
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
           child: Row(
             children: [
               _GlassButton(
@@ -861,13 +1167,9 @@ class _CallPageState extends State<CallPage> {
                               ? 'Connecting'
                               : !_remoteJoined
                               ? 'Waiting'
-                              : _formatDuration(
-                            _durationSeconds,
-                          ),
+                              : _formatDuration(_durationSeconds),
                           style: TextStyle(
-                            color: Colors.white.withValues(
-                              alpha: 0.7,
-                            ),
+                            color: Colors.white.withValues(alpha: 0.7),
                             fontSize: 12,
                           ),
                         ),
@@ -877,9 +1179,7 @@ class _CallPageState extends State<CallPage> {
                 ),
               ),
               _GlassIcon(
-                icon: _isVideo
-                    ? Icons.videocam_rounded
-                    : Icons.call_rounded,
+                icon: _isVideo ? Icons.videocam_rounded : Icons.call_rounded,
               ),
             ],
           ),
@@ -896,32 +1196,20 @@ class _CallPageState extends State<CallPage> {
       child: SafeArea(
         top: false,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(
-            16,
-            20,
-            16,
-            18,
-          ),
+          padding: const EdgeInsets.fromLTRB(16, 20, 16, 18),
           child: Center(
             child: Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 16,
-                vertical: 14,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
               decoration: BoxDecoration(
                 color: Colors.black.withValues(alpha: 0.55),
                 borderRadius: BorderRadius.circular(32),
-                border: Border.all(
-                  color: Colors.white.withValues(alpha: 0.08),
-                ),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
               ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   _CallControlButton(
-                    icon: _muted
-                        ? Icons.mic_off_rounded
-                        : Icons.mic_rounded,
+                    icon: _muted ? Icons.mic_off_rounded : Icons.mic_rounded,
                     label: _muted ? 'Unmute' : 'Mute',
                     active: _muted,
                     onPressed: _toggleMute,
@@ -931,9 +1219,7 @@ class _CallPageState extends State<CallPage> {
                     icon: _speakerEnabled
                         ? Icons.volume_up_rounded
                         : Icons.volume_off_rounded,
-                    label: _speakerEnabled
-                        ? 'Speaker'
-                        : 'Earpiece',
+                    label: _speakerEnabled ? 'Speaker' : 'Earpiece',
                     active: !_speakerEnabled,
                     onPressed: _toggleSpeaker,
                   ),
@@ -943,9 +1229,7 @@ class _CallPageState extends State<CallPage> {
                       icon: _cameraEnabled
                           ? Icons.videocam_rounded
                           : Icons.videocam_off_rounded,
-                      label: _cameraEnabled
-                          ? 'Camera'
-                          : 'Camera off',
+                      label: _cameraEnabled ? 'Camera' : 'Camera off',
                       active: !_cameraEnabled,
                       onPressed: _toggleCamera,
                     ),
@@ -1003,10 +1287,7 @@ class _CallPageState extends State<CallPage> {
         body: Stack(
           fit: StackFit.expand,
           children: [
-            if (_isVideo)
-              _buildVideoBackground()
-            else
-              _buildVoiceContent(),
+            if (_isVideo) _buildRemoteVideo() else _buildVoiceContent(),
             if (_isVideo) _buildLocalPreview(),
             _buildTopBar(),
             _buildControls(),
@@ -1015,9 +1296,7 @@ class _CallPageState extends State<CallPage> {
                 child: Container(
                   color: Colors.black.withValues(alpha: 0.45),
                   child: const Center(
-                    child: CircularProgressIndicator(
-                      color: Colors.white,
-                    ),
+                    child: CircularProgressIndicator(color: Colors.white),
                   ),
                 ),
               ),
@@ -1032,10 +1311,7 @@ class _GlassButton extends StatelessWidget {
   final IconData icon;
   final VoidCallback onPressed;
 
-  const _GlassButton({
-    required this.icon,
-    required this.onPressed,
-  });
+  const _GlassButton({required this.icon, required this.onPressed});
 
   @override
   Widget build(BuildContext context) {
@@ -1048,11 +1324,7 @@ class _GlassButton extends StatelessWidget {
         child: SizedBox(
           width: 44,
           height: 44,
-          child: Icon(
-            icon,
-            color: Colors.white,
-            size: 26,
-          ),
+          child: Icon(icon, color: Colors.white, size: 26),
         ),
       ),
     );
@@ -1062,9 +1334,7 @@ class _GlassButton extends StatelessWidget {
 class _GlassIcon extends StatelessWidget {
   final IconData icon;
 
-  const _GlassIcon({
-    required this.icon,
-  });
+  const _GlassIcon({required this.icon});
 
   @override
   Widget build(BuildContext context) {
@@ -1075,11 +1345,7 @@ class _GlassIcon extends StatelessWidget {
         color: Colors.black.withValues(alpha: 0.38),
         shape: BoxShape.circle,
       ),
-      child: Icon(
-        icon,
-        color: Colors.white,
-        size: 19,
-      ),
+      child: Icon(icon, color: Colors.white, size: 19),
     );
   }
 }
@@ -1109,8 +1375,7 @@ class _CallControlButton extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         Material(
-          color: backgroundColor ??
-              (active ? Colors.white24 : Colors.white12),
+          color: backgroundColor ?? (active ? Colors.white24 : Colors.white12),
           shape: const CircleBorder(),
           child: InkWell(
             onTap: onPressed,
@@ -1118,11 +1383,7 @@ class _CallControlButton extends StatelessWidget {
             child: SizedBox(
               width: size,
               height: size,
-              child: Icon(
-                icon,
-                color: Colors.white,
-                size: iconSize,
-              ),
+              child: Icon(icon, color: Colors.white, size: iconSize),
             ),
           ),
         ),
