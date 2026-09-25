@@ -1368,7 +1368,6 @@ class _CallControlButton extends StatelessWidget {
     this.size = 50,
     this.iconSize = 22,
   });
-
   @override
   Widget build(BuildContext context) {
     return Column(

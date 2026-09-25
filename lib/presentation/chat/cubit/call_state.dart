@@ -57,7 +57,6 @@ class CallEnded extends CallState {
 
   const CallEnded(this.call);
 }
-
 class CallMissed extends CallState {
   final CallModel call;
 
